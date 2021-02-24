@@ -29,14 +29,43 @@ BOOL bVerbose = FALSE;
 
 void ShowUsage()
 {
-	wprintf(L"INTERNETGETCOOKIE2  version 1.0\r\n");
+	wprintf(L"INTERNETGETCOOKIE2 version 1.1\r\n");
 	wprintf(L"\r\n");
 	wprintf(L"pierrelc@microsoft.com February 2021\r\n");
-	wprintf(L"Usage: INTERNETGETCOOKIE2 accepts an URL as parameter and optionaly a cookie name.\r\n");
+	wprintf(L"Usage: INTERNETGETCOOKIE2 accepts an URL as parameter and optionally a cookie name.\r\n");
 	wprintf(L"internetgetcookie2 [-d[v]|-v|-?|-h] url [cookiename]\r\n");
 	wprintf(L"-d to delete the cookie if it is found\r\n");
 	wprintf(L"-v or -dv for verbose mode\r\n");
-	wprintf(L"Uses InternetGetCookieEx2 API\r\n");
+	wprintf(L"Uses InternetGetCookieEx2 API  https://docs.microsoft.com/en-us/windows/win32/api/wininet/nf-wininet-internetgetcookieex2\r\n");
+}
+
+
+FILETIME ComputeFromCurrentTime(INT32 days, INT32 hours, INT32 minutes, INT32 seconds)
+{
+#define _SECOND ((INT64) 10000000)
+#define _MINUTE (60 * _SECOND)
+#define _HOUR   (60 * _MINUTE)
+#define _DAY    (24 * _HOUR)
+
+	//Determining Current Time
+	FILETIME fileTime;
+	GetSystemTimeAsFileTime(&fileTime);
+
+	//Converting to QuadWord for performing arithmetic
+	ULONGLONG qwResult;
+	qwResult = (((ULONGLONG)fileTime.dwHighDateTime) << 32) + fileTime.dwLowDateTime;
+
+	//Add time
+	qwResult += days * _DAY;
+	qwResult += hours * _HOUR;
+	qwResult += minutes * _MINUTE;
+	qwResult += seconds * _SECOND;
+
+	//Convert back to FILETIME
+	fileTime.dwLowDateTime = (DWORD)(qwResult & 0xFFFFFFFF);
+	fileTime.dwHighDateTime = (DWORD)(qwResult >> 32);
+
+	return fileTime;
 }
 
 void  SetCookie(char *CookieName)
@@ -140,6 +169,7 @@ int main(int argc, char* argv[])
 				if (bVerbose) wprintf(L"Verbose mode on\r\n");
 			}
 			bDeleteCookie = TRUE;
+			if (bVerbose) wprintf(L"Option to delete cookie set\r\n");
 			bReturn = SetUrl(argv[2]);
 			if (bReturn == FALSE)
 				exit(-1L);
@@ -320,6 +350,7 @@ void FindCookie(WCHAR* wszUrl, WCHAR* wszCookieName)
 		DumpCookie(pInternetCookie);
 		if (bDeleteCookie == TRUE)
 		{
+			if (bVerbose) wprintf(L"Deleting cookie\r\n");
 			DeleteCookie(pInternetCookie);
 		}
 		InternetFreeCookies(pInternetCookie, dwCookieCount);
@@ -388,7 +419,8 @@ BOOL DeleteCookie(INTERNET_COOKIE2* pInternetCookie)
 	DWORD dwCookieState = 0;
 
 	pInternetCookie->fExpiresSet = TRUE;
-
+	pInternetCookie->ftExpires = ComputeFromCurrentTime(-1, 0, 0, 0);
+	if (bVerbose) wprintf(L"Setting expiry time to current time minus one day\r\n");
 	if (bVerbose) wprintf(L"Calling InternetSetCookieEx2 for url %s and cookie name %s dwFlags: %X fExpiresSet:%d \r\n", wszUrl, wszCookieName, dwFlags, pInternetCookie->fExpiresSet);
 	dwReturn = InternetSetCookieEx2(wszUrl,pInternetCookie, NULL, dwFlags,  &dwCookieState);
 	if (bVerbose) wprintf(L"InternetGetCookieEx2 returning %d Cookie Count : %d\r\n", dwReturn, dwCookieState);
@@ -401,7 +433,7 @@ BOOL DeleteCookie(INTERNET_COOKIE2* pInternetCookie)
 			wprintf(L"Cookie state Reserved.");
 			break;
 		case COOKIE_STATE_ACCEPT:
-			wprintf(L"The cookies are accepted.\r\n");
+			wprintf(L"The cookie(s) state change has been accepted.\r\n");
 			break;
 		case COOKIE_STATE_PROMPT:
 			wprintf(L"The user is prompted to accept or deny the cookie\r\n");
