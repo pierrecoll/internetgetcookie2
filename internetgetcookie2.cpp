@@ -17,108 +17,44 @@ void CreateLowProcess();
 WCHAR* ExtractSingleCookieToken(LPTSTR lpszData);
 void FindCookies(WCHAR* wszUrl);
 void FindCookie(WCHAR* wszUrl, WCHAR* wszCookieName);
+BOOL CreateCookie(WCHAR* wszUrl, WCHAR* wszCookieName, WCHAR* wszCookieValue);
 BOOL DeleteCookie(INTERNET_COOKIE2* pInternetCookie);
 void DumpCookie(INTERNET_COOKIE2* pInternetCookie);
+void ShowUsage();
+BOOL SetUrl(char* Url);
+void  SetCookie(char* CookieName);
+void  SetCookieValue(char* CookieValue);
+FILETIME ComputeFromCurrentTime(INT32 days, INT32 hours, INT32 minutes, INT32 seconds);
 
 BOOL bProtectedModeUrl = FALSE;
 DWORD dwProcessIntegrityLevel = 0;
 WCHAR wszUrl[INTERNET_MAX_URL_LENGTH] = L"";
 WCHAR wszCookieName[INTERNET_MAX_URL_LENGTH] = L"";
+WCHAR wszCookieValue[INTERNET_MAX_URL_LENGTH] = L"";
 BOOL bDeleteCookie = FALSE;
+BOOL bCreateCookie = FALSE;
 BOOL bVerbose = FALSE;
+
 
 void ShowUsage()
 {
-	wprintf(L"INTERNETGETCOOKIE2 version 1.1\r\n");
+	wprintf(L"INTERNETGETCOOKIE2 version 1.2\r\n");
 	wprintf(L"\r\n");
-	wprintf(L"pierrelc@microsoft.com February 2021\r\n");
+	wprintf(L"pierrelc@microsoft.com April 2021\r\n");
 	wprintf(L"Usage: INTERNETGETCOOKIE2 accepts an URL as parameter and optionally a cookie name.\r\n");
-	wprintf(L"internetgetcookie2 [-d[v]|-v|-?|-h] url [cookiename]\r\n");
-	wprintf(L"-d to delete the cookie if it is found\r\n");
-	wprintf(L"-v or -dv for verbose mode\r\n");
+	wprintf(L"internetgetcookie2 [-c[v]|[-d[v]|-v|-?|-h] url [cookiename][cookievalue]\r\n");
+	wprintf(L"-d (or -dv for verbose mode) to delete the cookie if it is found\r\n");
+	wprintf(L"-c (or -cv for verbose mode) to create a cookie\r\n");
+	wprintf(L"-v for verbose mode)\r\n");
 	wprintf(L"Uses InternetGetCookieEx2 API  https://docs.microsoft.com/en-us/windows/win32/api/wininet/nf-wininet-internetgetcookieex2\r\n");
 }
 
-
-FILETIME ComputeFromCurrentTime(INT32 days, INT32 hours, INT32 minutes, INT32 seconds)
-{
-#define _SECOND ((INT64) 10000000)
-#define _MINUTE (60 * _SECOND)
-#define _HOUR   (60 * _MINUTE)
-#define _DAY    (24 * _HOUR)
-
-	//Determining Current Time
-	FILETIME fileTime;
-	GetSystemTimeAsFileTime(&fileTime);
-
-	//Converting to QuadWord for performing arithmetic
-	ULONGLONG qwResult;
-	qwResult = (((ULONGLONG)fileTime.dwHighDateTime) << 32) + fileTime.dwLowDateTime;
-
-	//Add time
-	qwResult += days * _DAY;
-	qwResult += hours * _HOUR;
-	qwResult += minutes * _MINUTE;
-	qwResult += seconds * _SECOND;
-
-	//Convert back to FILETIME
-	fileTime.dwLowDateTime = (DWORD)(qwResult & 0xFFFFFFFF);
-	fileTime.dwHighDateTime = (DWORD)(qwResult >> 32);
-
-	return fileTime;
-}
-
-void  SetCookie(char *CookieName)
-{
-	MultiByteToWideChar(CP_ACP, 0, CookieName, strlen(CookieName), wszCookieName, INTERNET_MAX_URL_LENGTH);
-	CookieName[strlen(CookieName)] = 0;
-	wprintf(L"Cookie Name : %s\r\n", wszCookieName);
-}
-
-BOOL SetUrl(char* Url)
-{
-	MultiByteToWideChar(CP_ACP, 0, Url, strlen(Url), wszUrl, INTERNET_MAX_URL_LENGTH);
-	wszUrl[strlen(Url)] = 0;
-	wprintf(L"Url : %s\r\n", wszUrl);
-
-	//checking protocol of the url.Must be http or https
-	int ch = ':';
-	char* pdest;
-	char protocol[6] = "";
-	int result;
-
-	// Search forward.
-	pdest = strchr(Url, ch);
-	result = (int)(pdest - Url + 1);
-	if (pdest != NULL)
-	{
-		if (result > 6)
-		{
-			wprintf(L"The protocol for the url must be http or https\r\n");
-			return(FALSE);
-		}
-		lstrcpynA(protocol, Url, result);
-		protocol[result - 1] = '\0';
-		if (bVerbose) wprintf(L"Protocol of the url is: %S\r\n", protocol);
-		if ((strncmp(protocol, "http", result - 1) != 0) && (strncmp(protocol, "https", result - 1) != 0))
-		{
-			wprintf(L"The protocol for the url must be http or https\r\n");
-			return(FALSE);
-		}
-	}
-	else
-	{
-		wprintf(L"The protocol for the url must be http or https\r\n");
-		return(FALSE);
-	}
-	return(TRUE);
-}
 int main(int argc, char* argv[])
 {
 	BOOL bReturn = FALSE;
 	BOOL bSearchCookie = FALSE;
 
-	if ((argc != 2) && (argc != 3) && (argc != 4) || (argc==1))
+	if ((argc != 2) && (argc != 3) && (argc != 4) && (argc != 5) || (argc==1))
 	{
 		ShowUsage();
 		exit(0L);
@@ -180,6 +116,32 @@ int main(int argc, char* argv[])
 				goto ParamParsed;
 			}
 		}
+		//Create
+		else if ((!strcmp(arg, "-c")) || (!strcmp(arg, "-cv")))
+		{
+			if (argc != 5)
+			{
+				wprintf(L"-c option requires a cookie name as third parameter and cookie value as fourth parameter\r\n");
+				ShowUsage();
+				exit(0L);
+			}
+			if (!strcmp(arg, "-cv"))
+			{
+				bVerbose = TRUE;
+				if (bVerbose) wprintf(L"Verbose mode on\r\n");
+			}
+			bCreateCookie = TRUE;
+			if (bVerbose) wprintf(L"Option to create cookie set\r\n");
+			bReturn = SetUrl(argv[2]);
+			if (bReturn == FALSE)
+				exit(-1L);
+			else
+			{
+				SetCookie(argv[3]);
+				SetCookieValue(argv[4]);
+				goto ParamParsed;
+			}
+		}
 		else if (!strcmp(arg, "-v")) 
 		{
 			bVerbose = TRUE;
@@ -223,6 +185,15 @@ ParamParsed:
 		if (bVerbose) wprintf(L"IEIsProtectedModeURL returning : %X\r\n", hr);
 	}
 	 
+	if (bCreateCookie == TRUE)
+	{
+			BOOL bReturn=CreateCookie(wszUrl,wszCookieName,wszCookieValue);
+			if (bReturn == TRUE)
+			{
+				FindCookie(wszUrl, wszCookieName);
+			}
+			return 0L;
+	}
 	if (bSearchCookie==FALSE)
 	{
 		FindCookies(wszUrl);
@@ -235,7 +206,58 @@ ParamParsed:
 	return 0L;
 }
 
+void  SetCookie(char* CookieName)
+{
+	MultiByteToWideChar(CP_ACP, 0, CookieName, strlen(CookieName), wszCookieName, INTERNET_MAX_URL_LENGTH);
+	CookieName[strlen(CookieName)] = 0;
+	wprintf(L"Cookie Name : %s\r\n", wszCookieName);
+}
 
+void  SetCookieValue(char* CookieValue)
+{
+	MultiByteToWideChar(CP_ACP, 0, CookieValue, strlen(CookieValue), wszCookieValue, INTERNET_MAX_URL_LENGTH);
+	CookieValue[strlen(CookieValue)] = 0;
+	wprintf(L"Cookie Name : %s\r\n", wszCookieName);
+}
+
+BOOL SetUrl(char* Url)
+{
+	MultiByteToWideChar(CP_ACP, 0, Url, strlen(Url), wszUrl, INTERNET_MAX_URL_LENGTH);
+	wszUrl[strlen(Url)] = 0;
+	wprintf(L"Url : %s\r\n", wszUrl);
+
+	//checking protocol of the url.Must be http or https
+	int ch = ':';
+	char* pdest;
+	char protocol[6] = "";
+	int result;
+
+	// Search forward.
+	pdest = strchr(Url, ch);
+	result = (int)(pdest - Url + 1);
+	if (pdest != NULL)
+	{
+		if (result > 6)
+		{
+			wprintf(L"The protocol for the url must be http or https\r\n");
+			return(FALSE);
+		}
+		lstrcpynA(protocol, Url, result);
+		protocol[result - 1] = '\0';
+		if (bVerbose) wprintf(L"Protocol of the url is: %S\r\n", protocol);
+		if ((strncmp(protocol, "http", result - 1) != 0) && (strncmp(protocol, "https", result - 1) != 0))
+		{
+			wprintf(L"The protocol for the url must be http or https\r\n");
+			return(FALSE);
+		}
+	}
+	else
+	{
+		wprintf(L"The protocol for the url must be http or https\r\n");
+		return(FALSE);
+	}
+	return(TRUE);
+}
 void DumpCookie(INTERNET_COOKIE2* pInternetCookie)
 {
 	
@@ -305,6 +327,93 @@ void DumpCookie(INTERNET_COOKIE2* pInternetCookie)
 	}
 }
 
+
+BOOL CreateCookie(WCHAR* wszUrl, WCHAR* wszCookieName, WCHAR* wszCookieValue)
+{
+	DWORD dwReturn = 0;
+
+	LPTSTR lpszCookieData = NULL;   // buffer to hold the cookie data
+	//DWORD dwFlags = INTERNET_COOKIE_NON_SCRIPT;
+	DWORD dwFlags =  INTERNET_COOKIE_PROMPT_REQUIRED;
+	DWORD dwCookieCount = 0;
+	INTERNET_COOKIE2 InternetCookie = {0};
+	DWORD dwCookieState;
+
+	InternetCookie.pwszName = wszCookieName;
+	InternetCookie.pwszValue = wszCookieValue;
+	InternetCookie.pwszPath=(PWSTR)  L"/";
+	InternetCookie.fExpiresSet = true;
+
+
+	FILETIME ft = {};
+	GetSystemTimeAsFileTime(&InternetCookie.ftExpires);
+	//setting epiry to current time plus one day
+	InternetCookie.ftExpires = ComputeFromCurrentTime(+1, 0, 0, 0);
+	if (bVerbose) wprintf(L"Calling InternetSetCookieEx2 for url %s and cookie name %s and cookie value %s dwFlags: %X\r\n", wszUrl, wszCookieName, wszCookieValue, dwFlags);
+	dwReturn = InternetSetCookieEx2(wszUrl, &InternetCookie, NULL, dwFlags, &dwCookieState);
+	if (bVerbose) wprintf(L"InternetSetCookieEx2 returning %d\r\n", dwReturn);
+	if (dwReturn != ERROR_SUCCESS) 
+	{	
+		if (dwProcessIntegrityLevel == SECURITY_MANDATORY_HIGH_RID)
+		{
+			wprintf(L"Starting low cannot be done from an administrative command prompt (High Integrity Level)\r\n");
+			exit(-1L);
+		}
+		else if (dwProcessIntegrityLevel == SECURITY_MANDATORY_LOW_RID)
+		{
+			//¨process already Low 
+			wprintf(L"Process already running at low integrity\r\n");
+			wprintf(L"Cookie %s not found for url:%s\r\n", wszCookieName, wszUrl);
+			wprintf(L"Type enter to exit low integrity level!\r\n");
+			exit(-2L);
+		}
+		else if (dwProcessIntegrityLevel == SECURITY_MANDATORY_MEDIUM_RID)
+		{
+			wprintf(L"Trying to start as low integrity level process\r\n");
+			CreateLowProcess();
+			exit(0L);
+		}
+		else
+		{
+			wprintf(L"Unexpected integity level for -low option\r\n");
+		}
+	}
+	else
+	{
+		if (bVerbose) wprintf(L"InternetSetCookieEx2 succeeded\r\n");
+		if (dwReturn == ERROR_SUCCESS)
+		{
+			switch (dwCookieState)
+			{
+			case COOKIE_STATE_UNKNOWN:
+				wprintf(L"Cookie state Reserved.");
+				break;
+			case COOKIE_STATE_ACCEPT:
+				wprintf(L"The cookie(s) state change has been accepted.\r\n");
+				break;
+			case COOKIE_STATE_PROMPT:
+				wprintf(L"The user is prompted to accept or deny the cookie\r\n");
+				break;
+			case COOKIE_STATE_LEASH:
+				wprintf(L"Cookies are accepted only in the first - party context.\r\n");
+				break;
+			case COOKIE_STATE_DOWNGRADE:
+				wprintf(L"Cookies are accepted and become session cookies.\r\n");
+				break;
+			case COOKIE_STATE_REJECT:
+				wprintf(L"The cookies are rejected.\r\n");
+				break;
+			default:
+				wprintf(L"Unknown cookie state.\r\n");
+				break;
+			}
+		}
+		DumpCookie(&InternetCookie);
+
+	}
+	return TRUE;
+}
+
 void FindCookie(WCHAR* wszUrl, WCHAR* wszCookieName)
 {
 	DWORD dwReturn = 0;
@@ -319,7 +428,6 @@ void FindCookie(WCHAR* wszUrl, WCHAR* wszCookieName)
 	if (bVerbose) wprintf(L"InternetGetCookieEx2 returning %d Cookie Count : %d\r\n", dwReturn, dwCookieCount);
 	if ((dwReturn != ERROR_SUCCESS) || (dwCookieCount == 0))
 	{
-		if (bVerbose) wprintf(L"dwReturn: %d dwCookiecount: %d\r\n", dwReturn, dwCookieCount);
 		if (dwProcessIntegrityLevel == SECURITY_MANDATORY_HIGH_RID)
 		{
 			wprintf(L"Starting low cannot be done from an administrative command prompt (High Integrity Level)\r\n");
@@ -330,7 +438,7 @@ void FindCookie(WCHAR* wszUrl, WCHAR* wszCookieName)
 			//¨process already Low 
 			wprintf(L"Process already running at low integrity\r\n");
 			wprintf(L"Cookie %s not found for url:%s\r\n", wszCookieName, wszUrl);
-			wprintf(L"Type enter to exit low integrity level\r\n");
+			wprintf(L"Type enter to exit low integrity level!\r\n");
 			exit(-2L);
 		}
 		else if (dwProcessIntegrityLevel == SECURITY_MANDATORY_MEDIUM_RID)
@@ -677,5 +785,33 @@ WCHAR* ExtractSingleCookieToken(LPTSTR lpszData)
 		}
 	}
 	return CookieName;
+}
+
+FILETIME ComputeFromCurrentTime(INT32 days, INT32 hours, INT32 minutes, INT32 seconds)
+{
+#define _SECOND ((INT64) 10000000)
+#define _MINUTE (60 * _SECOND)
+#define _HOUR   (60 * _MINUTE)
+#define _DAY    (24 * _HOUR)
+
+	//Determining Current Time
+	FILETIME fileTime;
+	GetSystemTimeAsFileTime(&fileTime);
+
+	//Converting to QuadWord for performing arithmetic
+	ULONGLONG qwResult;
+	qwResult = (((ULONGLONG)fileTime.dwHighDateTime) << 32) + fileTime.dwLowDateTime;
+
+	//Add time
+	qwResult += days * _DAY;
+	qwResult += hours * _HOUR;
+	qwResult += minutes * _MINUTE;
+	qwResult += seconds * _SECOND;
+
+	//Convert back to FILETIME
+	fileTime.dwLowDateTime = (DWORD)(qwResult & 0xFFFFFFFF);
+	fileTime.dwHighDateTime = (DWORD)(qwResult >> 32);
+
+	return fileTime;
 }
 
