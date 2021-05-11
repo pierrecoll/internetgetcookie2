@@ -344,7 +344,6 @@ BOOL CreateCookie(WCHAR* wszUrl, WCHAR* wszCookieName, WCHAR* wszCookieValue)
 	InternetCookie.pwszPath=(PWSTR)  L"/";
 	InternetCookie.fExpiresSet = true;
 
-
 	FILETIME ft = {};
 	GetSystemTimeAsFileTime(&InternetCookie.ftExpires);
 	//setting epiry to current time plus one day
@@ -375,7 +374,7 @@ BOOL CreateCookie(WCHAR* wszUrl, WCHAR* wszCookieName, WCHAR* wszCookieValue)
 		}
 		else
 		{
-			wprintf(L"Unexpected integity level for -low option\r\n");
+			wprintf(L"Unexpected integity level\r\n");
 		}
 	}
 	else
